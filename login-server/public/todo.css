@@ -1,0 +1,37 @@
+
+* { box-sizing: border-box }
+body { margin: 0; background: #f3f5f0; color: #202d26; font-family: system-ui, sans-serif }
+main { max-width: 1120px; margin: auto; padding: clamp(14px, 4vw, 48px) }
+h1 { margin: 0 0 24px; font-size: clamp(26px, 5vw, 40px); letter-spacing: -.06em }
+h2 { margin: 0; font-size: 1.2rem }
+.layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 18px; align-items: start }
+.panel { background: white; border: 1px solid #dce4dc; border-radius: 18px; padding: clamp(12px, 2vw, 24px) }
+.toolbar, .switch, .navigation, form, li { display: flex; gap: 6px; align-items: center }
+.toolbar { justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 18px }
+button, input { font: inherit; color: inherit }
+button { border: 1px solid #dbe4dc; background: white; border-radius: 9px; min-height: 40px; padding: 0 10px; cursor: pointer }
+button:hover { background: #edf4ee }
+button:focus-visible, input:focus-visible { outline: 2px solid #267552; outline-offset: 2px }
+.switch button[aria-pressed=true], .primary { background: #225740; color: white; border-color: #225740 }
+.primary:hover { background: #194430 }
+.period { margin-bottom: 10px }
+.calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px }
+.calendar.day { grid-template-columns: 1fr }
+.weekday { text-align: center; padding: 6px 0; font-size: .82rem; color: #526159 }
+.date { min-width: 0; min-height: clamp(58px, 7vw, 88px); display: flex; flex-direction: column; align-items: start; gap: 5px; padding: 6px; font-weight: 650 }
+.date.outside { color: #68766e; background: #f7f8f6 }
+.date[aria-current=date] { box-shadow: inset 0 0 0 1px #267552 }
+.date[aria-pressed=true] { border-color: #267552; background: #e3f2e9 }
+.count { font-size: .75rem; color: #225740; font-weight: 600 }
+form { margin-top: 16px; flex-wrap: wrap }
+input { flex: 1 1 120px; min-width: 0; width: 100%; border: 1px solid #cad7cc; border-radius: 9px; min-height: 40px; padding: 8px }
+ul { list-style: none; padding: 0; margin: 12px 0 0 }
+li { padding: 9px 0; border-bottom: 1px solid #e7ece7 }
+li span { flex: 1; overflow-wrap: anywhere; white-space: pre-wrap }
+li button { padding: 0 7px }
+.muted { color: #526159 }
+#status { color: #9a3827 }
+#status:empty { display: none }
+@media (max-width: 780px) { .layout { grid-template-columns: 1fr } }
+[hidden] { display: none !important }
+button:disabled { opacity: .6; cursor: default }

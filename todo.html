@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>할 일 캘린더</title>
+<style>
+* { box-sizing: border-box }
+body { margin: 0; background: #f3f5f0; color: #202d26; font-family: system-ui, sans-serif }
+main { max-width: 1120px; margin: auto; padding: clamp(14px, 4vw, 48px) }
+h1 { margin: 0 0 24px; font-size: clamp(26px, 5vw, 40px); letter-spacing: -.06em }
+h2 { margin: 0; font-size: 1.2rem }
+.layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 18px; align-items: start }
+.panel { background: white; border: 1px solid #dce4dc; border-radius: 18px; padding: clamp(12px, 2vw, 24px) }
+.toolbar, .switch, .navigation, form, li { display: flex; gap: 6px; align-items: center }
+.toolbar { justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 18px }
+button, input { font: inherit; color: inherit }
+button { border: 1px solid #dbe4dc; background: white; border-radius: 9px; min-height: 40px; padding: 0 10px; cursor: pointer }
+button:hover { background: #edf4ee }
+button:focus-visible, input:focus-visible { outline: 2px solid #267552; outline-offset: 2px }
+.switch button[aria-pressed=true], .primary { background: #225740; color: white; border-color: #225740 }
+.primary:hover { background: #194430 }
+.period { margin-bottom: 10px }
+.calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px }
+.calendar.day { grid-template-columns: 1fr }
+.weekday { text-align: center; padding: 6px 0; font-size: .82rem; color: #526159 }
+.date { min-width: 0; min-height: clamp(58px, 7vw, 88px); display: flex; flex-direction: column; align-items: start; gap: 5px; padding: 6px; font-weight: 650 }
+.date.outside { color: #68766e; background: #f7f8f6 }
+.date[aria-current=date] { box-shadow: inset 0 0 0 1px #267552 }
+.date[aria-pressed=true] { border-color: #267552; background: #e3f2e9 }
+.count { font-size: .75rem; color: #225740; font-weight: 600 }
+form { margin-top: 16px; flex-wrap: wrap }
+input { flex: 1 1 120px; min-width: 0; width: 100%; border: 1px solid #cad7cc; border-radius: 9px; min-height: 40px; padding: 8px }
+ul { list-style: none; padding: 0; margin: 12px 0 0 }
+li { padding: 9px 0; border-bottom: 1px solid #e7ece7 }
+li span { flex: 1; overflow-wrap: anywhere; white-space: pre-wrap }
+li button { padding: 0 7px }
+.muted { color: #526159 }
+#status { color: #9a3827 }
+#status:empty { display: none }
+@media (max-width: 780px) { .layout { grid-template-columns: 1fr } }
+</style>
+</head>
+<body>
+<main>
+  <h1>할 일 캘린더</h1>
+  <div class="layout">
+    <section class="panel" aria-labelledby="period">
+      <div class="toolbar">
+        <div class="navigation" aria-label="기간 이동">
+          <button id="prev" type="button" aria-label="이전 기간">‹</button>
+          <button id="today" type="button">오늘</button>
+          <button id="next" type="button" aria-label="다음 기간">›</button>
+        </div>
+        <div class="switch" aria-label="보기 선택">
+          <button type="button" data-view="day">일별</button>
+          <button type="button" data-view="week">주별</button>
+          <button type="button" data-view="month" aria-pressed="true">월별</button>
+        </div>
+      </div>
+      <h2 class="period" id="period" aria-live="polite"></h2>
+      <div id="calendar" class="calendar"></div>
+    </section>
+    <section class="panel" aria-labelledby="selected">
+      <h2 id="selected" aria-live="polite"></h2>
+      <form id="form">
+        <input id="text" required maxlength="200" aria-label="할 일 내용" placeholder="할 일을 입력하세요">
+        <button id="submit" class="primary">추가</button>
+        <button id="cancel" type="button" hidden>취소</button>
+      </form>
+      <p id="status" role="alert"></p>
+      <p id="empty" class="muted">등록된 할 일이 없어요.</p>
+      <ul id="tasks"></ul>
+    </section>
+  </div>
+</main>
+<script>
+'use strict';
+
+const storageKey = 'todo-calendar-v1';
+const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+const byId = id => document.getElementById(id);
+const calendar = byId('calendar');
+const input = byId('text');
+const status = byId('status');
+const fullDate = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'full' });
+const monthLabel = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long' });
+const shortDate = new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' });
+const viewButtons = document.querySelectorAll('[data-view]');
+let selected = new Date();
+let view = 'month';
+let editing = null;
+
+function dateKey(date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return date.getFullYear() + '-' + month + '-' + day;
+}
+
+function addDays(date, count) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + count);
+  return next;
+}
+
+function readTasks() {
+  const data = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
+  if (!data || typeof data !== 'object' || Array.isArray(data) ||
+      Object.values(data).some(list => !Array.isArray(list) ||
+        list.some(task => typeof task?.id !== 'string' || typeof task?.text !== 'string'))) {
+    throw new Error('Invalid task data');
+  }
+  return data;
+}
+
+let tasks = {};
+try {
+  tasks = readTasks();
+} catch {
+  status.textContent = '저장된 할 일을 읽을 수 없어요.';
+}
+
+function saveTasks(update) {
+  try {
+    const data = readTasks();
+    const key = dateKey(selected);
+    const list = update(data[key] ?? []);
+    if (list.length) data[key] = list;
+    else delete data[key];
+    localStorage.setItem(storageKey, JSON.stringify(data));
+    tasks = data;
+    status.textContent = '';
+    return true;
+  } catch {
+    status.textContent = '할 일을 저장할 수 없어요. 브라우저 저장소를 확인해 주세요.';
+    return false;
+  }
+}
+
+function resetForm() {
+  editing = null;
+  byId('form').reset();
+  input.setCustomValidity('');
+  byId('submit').textContent = '추가';
+  byId('cancel').hidden = true;
+}
+
+function selectDate(date) {
+  if (dateKey(date) !== dateKey(selected)) resetForm();
+  selected = date;
+  render();
+}
+
+function navigate(direction) {
+  if (view === 'month') {
+    const first = new Date(selected.getFullYear(), selected.getMonth() + direction, 1);
+    const lastDay = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    first.setDate(Math.min(selected.getDate(), lastDay));
+    selectDate(first);
+    return;
+  }
+  selectDate(addDays(selected, direction * (view === 'week' ? 7 : 1)));
+}
+
+function renderCalendar() {
+  calendar.replaceChildren();
+  calendar.classList.toggle('day', view === 'day');
+  viewButtons.forEach(button => button.setAttribute('aria-pressed', button.dataset.view === view));
+
+  const first = new Date(selected.getFullYear(), selected.getMonth(), 1);
+  const daysInMonth = new Date(selected.getFullYear(), selected.getMonth() + 1, 0).getDate();
+  const start = {
+    day: selected,
+    week: addDays(selected, -selected.getDay()),
+    month: addDays(first, -first.getDay())
+  }[view];
+  const length = { day: 1, week: 7, month: Math.ceil((first.getDay() + daysInMonth) / 7) * 7 }[view];
+  const end = addDays(start, length - 1);
+  byId('period').textContent = {
+    day: fullDate.format(selected),
+    week: start.getFullYear() + '년 ' + shortDate.format(start) + ' – ' +
+      (start.getFullYear() === end.getFullYear() ? '' : end.getFullYear() + '년 ') + shortDate.format(end),
+    month: monthLabel.format(selected)
+  }[view];
+
+  if (view !== 'day') {
+    for (const label of weekdays) {
+      const heading = document.createElement('div');
+      heading.className = 'weekday';
+      heading.textContent = label;
+      calendar.append(heading);
+    }
+  }
+
+  const todayKey = dateKey(new Date());
+  for (let offset = 0; offset < length; offset++) {
+    const date = addDays(start, offset);
+    const key = dateKey(date);
+    const count = tasks[key]?.length ?? 0;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'date';
+    button.dataset.date = key;
+    button.classList.toggle('outside', view === 'month' && date.getMonth() !== selected.getMonth());
+    button.textContent = date.getDate();
+    button.setAttribute('aria-label', fullDate.format(date) + ', 할 일 ' + count + '개');
+    button.setAttribute('aria-pressed', key === dateKey(selected));
+    if (key === todayKey) button.setAttribute('aria-current', 'date');
+    if (count) {
+      const badge = document.createElement('span');
+      badge.className = 'count';
+      badge.textContent = count + '개';
+      button.append(badge);
+    }
+    button.addEventListener('click', () => {
+      selectDate(date);
+      calendar.querySelector('[data-date="' + key + '"]').focus();
+    });
+    calendar.append(button);
+  }
+}
+
+function renderTasks() {
+  const list = tasks[dateKey(selected)] ?? [];
+  byId('selected').textContent = fullDate.format(selected);
+  byId('empty').hidden = list.length > 0;
+  byId('tasks').replaceChildren();
+
+  for (const task of list) {
+    const row = document.createElement('li');
+    const title = document.createElement('span');
+    title.textContent = task.text;
+
+    const edit = document.createElement('button');
+    edit.textContent = '수정';
+    edit.setAttribute('aria-label', task.text + ' 수정');
+    edit.addEventListener('click', () => {
+      editing = task.id;
+      input.setCustomValidity('');
+      input.value = task.text;
+      byId('submit').textContent = '저장';
+      byId('cancel').hidden = false;
+      input.focus();
+      input.select();
+    });
+
+    const remove = document.createElement('button');
+    remove.textContent = '삭제';
+    remove.setAttribute('aria-label', task.text + ' 삭제');
+    remove.addEventListener('click', () => {
+      if (!saveTasks(current => current.filter(item => item.id !== task.id))) return;
+      if (editing === task.id) resetForm();
+      render();
+      input.focus();
+    });
+
+    row.append(title, edit, remove);
+    byId('tasks').append(row);
+  }
+}
+
+function render() {
+  renderCalendar();
+  renderTasks();
+}
+
+byId('form').addEventListener('submit', event => {
+  event.preventDefault();
+  const text = input.value.trim();
+  if (!text) {
+    input.setCustomValidity('할 일을 입력해 주세요.');
+    input.reportValidity();
+    return;
+  }
+
+  const saved = saveTasks(list => {
+    if (editing !== null) return list.map(task => task.id === editing ? { ...task, text } : task);
+    const id = crypto.randomUUID?.() ?? (Date.now() + '-' + Math.random());
+    return [...list, { id, text }];
+  });
+  if (!saved) return;
+  resetForm();
+  render();
+  input.focus();
+});
+
+input.addEventListener('input', () => input.setCustomValidity(''));
+byId('cancel').addEventListener('click', () => { resetForm(); input.focus(); });
+byId('prev').addEventListener('click', () => navigate(-1));
+byId('next').addEventListener('click', () => navigate(1));
+byId('today').addEventListener('click', () => selectDate(new Date()));
+viewButtons.forEach(button => button.addEventListener('click', () => {
+  view = button.dataset.view;
+  renderCalendar();
+}));
+window.addEventListener('storage', event => {
+  if (event.key !== storageKey && event.key !== null) return;
+  try {
+    tasks = readTasks();
+    if (editing !== null && !tasks[dateKey(selected)]?.some(task => task.id === editing)) resetForm();
+    status.textContent = '';
+    render();
+  } catch {
+    status.textContent = '저장된 할 일을 읽을 수 없어요.';
+  }
+});
+
+render();
+</script>
+</body>
+</html>
